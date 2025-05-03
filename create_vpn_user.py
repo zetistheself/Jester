@@ -4,7 +4,7 @@ import json
 import uuid
 import secrets
 import os
-import socket
+import public_ip
 
 
 def generate_keys() -> list[str]:
@@ -15,14 +15,17 @@ def generate_keys() -> list[str]:
     return keys[0], keys[1]
 
 
-def get_local_ipv4():
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    return local_ip
+def get_public_ipv4() -> str:
+    try:
+        ip = public_ip.get()
+    except Exception as e:
+        print(f"Error getting public IP: {e}")
+        return None
+    return ip
 
 
 def generate_vless_uri(id: str, ip: str, port: int, short_id: str, public_key: str):
-    return f"vless://{id}@192.168.1.3:{port}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk={public_key}&sid={short_id}#%D0%A8%D1%83%D1%82%20VPN"
+    return f"vless://{id}@{ip}:{port}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk={public_key}&sid={short_id}#%D0%A8%D1%83%D1%82%20VPN"
 
 
 def generate_config(private_key: str, id: str, short_id: str):
@@ -78,12 +81,12 @@ def run_container(name: str, port: int, rate: int):
     pwd = os.getcwd()
     subprocess.run(['docker', 'build', '-t', f'xray-{name}', "--build-arg", f"TRANSFER_RATE={rate}", '-f', 'Dockerfile', '.'])
     subprocess.run(["docker", "run", "-d", "--name", f"xray-{name}",
-  "-v", f"{pwd}/xray-config.json:/etc/xray/config.json", 
-  "-p", f"{port}:443",
-  "--restart=always",
-  "--device", "/dev/net/tun",
-  "--cap-add=NET_ADMIN",
-  f"xray-{name}"])
+                    "-v", f"{pwd}/xray-config.json:/etc/xray/config.json", 
+                    "-p", f"{port}:443",
+                    "--restart=always",
+                    "--device", "/dev/net/tun",
+                    "--cap-add=NET_ADMIN",
+                    f"xray-{name}"])
 
 
 def main():
@@ -95,7 +98,7 @@ def main():
     port = input("Port: ")
     transfer_rate = input("Transfer rate: ") + "mbit"
     run_container(name, port, transfer_rate)
-    print(generate_vless_uri(id, get_local_ipv4(), port, short_id, public_key))
+    print(generate_vless_uri(id, get_public_ipv4(), port, short_id, public_key))
 
 
 if __name__ == "__main__":
