@@ -83,7 +83,7 @@ def run_container(name: str, port: int, rate: int):
     subprocess.run(['docker', 'build', '-t', f'xray-{name}', "--build-arg", f"TRANSFER_RATE={rate}", '-f', 'Dockerfile', '.'])
     subprocess.run(["docker", "run", "-d", "--name", f"xray-{name}",
                     "-v", f"{pwd}/xray-config.json:/etc/xray/config.json", 
-                    "-p", f"{port}:443",
+                    "-p", f"443:{port}",
                     "--restart=always",
                     "--device", "/dev/net/tun",
                     "--cap-add=NET_ADMIN",

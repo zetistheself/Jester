@@ -38,9 +38,10 @@ def setup_database():
     session = sessionmaker(bind=engine)()
     keys = server_list.keys()
     for key in keys:
-        server = Server(ip=key, password=server_list[key])
-        session.add(server)
-    session.commit()
+        if session.query(Server).filter_by(ip=key).first() is None:
+            server = Server(ip=key, password=server_list[key])
+            session.add(server)
+            session.commit()
     return engine
 
 

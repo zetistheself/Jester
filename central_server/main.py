@@ -5,6 +5,7 @@ import paramiko
 import subprocess
 import database
 import datetime
+import re
 
 from dotenv import load_dotenv
 from sqlalchemy import func
@@ -87,9 +88,14 @@ def run_vpn_script(server, port, name, speed):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(server.ip, username='root', password=server.password)
-    stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 Jester/create_vpn_user.py {name} {port} {speed}")
-    print(stdout.read().decode())
+    stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed}")
+    stdout = stdout.read().decode()
+    key = re.search(r'vless://(.*)', stdout).group(0)
     get_error_message(stderr)
+    if key is None:
+        print("Error: No key found in output.")
+        return None
+    return key
 
 
 def create_vpn_config(session, name, speed, server):
@@ -97,11 +103,11 @@ def create_vpn_config(session, name, speed, server):
     if not port:
         bot.send_message(server.ip, "Нет доступных портов.")
         return
-    run_vpn_script(server, port, name, speed)
+    key = run_vpn_script(server, port, name, speed)
     config = database.Config(name=name, speed=speed, server=server, expire_date=datetime.datetime.now() + datetime.timedelta(days=30))
     session.add(config)
     session.commit()
-    return config
+    return key
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -109,6 +115,7 @@ def handle_query(call):
     if call.data in ["50", "100", "300"]:
         name = r.get(call.message.chat.id)
         if name:
+            name = name.decode()
             speed = int(call.data)
             session = sessionmaker(bind=engine)()
             if check_config_availability(session, speed):
@@ -116,7 +123,12 @@ def handle_query(call):
                 if not server:
                     bot.send_message(call.message.chat.id, "Нет доступных серверов.")
                     return
-                create_vpn_config(session, name, speed, server)
+                key = create_vpn_config(session, name, speed, server)
+                if key:
+                    bot.send_message(call.message.chat.id, f"VPN создан. Ссылка:")
+                    bot.send_message(call.message.chat.id, key)
+                else:
+                    bot.send_message(call.message.chat.id, "Произошла ошибка при создании VPN.")
 
             r.delete(call.message.chat.id)
         else:
