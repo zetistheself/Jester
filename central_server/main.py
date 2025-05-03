@@ -70,7 +70,7 @@ def get_available_port(session, server):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(server.ip, username='root', password=server.password)
-    stdin, stdout, stderr = client.exec_command("comm -23 <(seq 1024 65535 | sort) <(ss -tuln | awk '{print $5}' | grep -oE '[0-9]+$' | sort -n | uniq) | head -n 1")
+    stdin, stdout, stderr = client.exec_command("python3 -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'")
     if stderr.read().decode() != '':
         print(f"Error: {stderr.read().decode()}")
         return None
