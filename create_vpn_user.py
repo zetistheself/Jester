@@ -5,6 +5,7 @@ import uuid
 import secrets
 import os
 import public_ip
+import sys
 
 
 def generate_keys() -> list[str]:
@@ -94,9 +95,12 @@ def main():
     id = str(uuid.uuid4())
     short_id = secrets.token_hex(4)
     save_config(generate_config(private_key, id, short_id))
-    name = input("Name: ")
-    port = input("Port: ")
-    transfer_rate = input("Transfer rate: ") + "mbit"
+    if len(sys.argv) != 4:
+        print("Usage: python3 create_vpn_user.py <name> <port> <speed>")
+        sys.exit(1)
+    name = sys.argv[1]
+    port = sys.argv[2]
+    transfer_rate = sys.argv[3] + "mbit"
     run_container(name, port, transfer_rate)
     print(generate_vless_uri(id, get_public_ipv4(), port, short_id, public_key))
 

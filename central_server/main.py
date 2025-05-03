@@ -36,7 +36,6 @@ def handle_text(message):
     status = r.get(message.chat.id)
     if status:
         status = status.decode()
-    print(status)
     if message.text == "Создать VPN":
         bot.send_message(message.chat.id, "Введите имя покупателя(Латиница)")
         r.set(message.chat.id, "Waiting_for_name", ex=86400)
@@ -78,9 +77,9 @@ def get_available_port(session, server):
 
 
 def get_error_message(stderr):
-    print(stderr.read().decode())
     if stderr.read().decode() != '':
         print(f"Error: {stderr.read().decode()}")
+        print(stderr.read())
         return "Error: {stderr.read().decode()}"
 
 
@@ -88,15 +87,10 @@ def run_vpn_script(server, port, name, speed):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(server.ip, username='root', password=server.password)
-    command = (
-        'git clone https://github.com/zetistheself/Jester && '
-        'cd Jester && python3 -m venv venv && source venv/bin/activate && '
-        'pip install -r requirements.txt && python3 create_vpn_user.py'
-    )
-    stdin, stdout, stderr = client.exec_command(command)
+    stdin, stdout, stderr = client.exec_command("cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt")
     print(stdout.read().decode())
-    # stdin.write(f'{name}\n{port}\n{speed}\n')
-    # stdin.flush()
+    stdin, stdout, stderr = client.exec_command(f"python3 create_vpn_user.py {name} {port} {speed}")
+    print(stdout.read().decode())
     get_error_message(stderr)
 
 
