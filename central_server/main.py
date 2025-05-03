@@ -77,10 +77,10 @@ def get_available_port(session, server):
 
 
 def get_error_message(stderr):
-    if stderr.read().decode() != '':
-        print(f"Error: {stderr.read().decode()}")
-        print(stderr.read())
-        return "Error: {stderr.read().decode()}"
+    error = stderr.read().decode()
+    if error != '':
+        print(f"Error: {error}")
+    return error
 
 
 def run_vpn_script(server, port, name, speed):
@@ -89,7 +89,7 @@ def run_vpn_script(server, port, name, speed):
     client.connect(server.ip, username='root', password=server.password)
     stdin, stdout, stderr = client.exec_command("cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt")
     print(stdout.read().decode())
-    stdin, stdout, stderr = client.exec_command(f"python3 create_vpn_user.py {name} {port} {speed}")
+    stdin, stdout, stderr = client.exec_command(f"python3 Jester/create_vpn_user.py {name} {port} {speed}")
     print(stdout.read().decode())
     get_error_message(stderr)
 
