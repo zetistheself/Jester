@@ -6,5 +6,5 @@ from dotenv import load_dotenv
 load_dotenv()
 
 server_list = {
-    'linkedmail.ru': os.getenv('linkedmail.ru'),
+    '103.80.87.125': os.getenv('103.80.87.125'),
 }

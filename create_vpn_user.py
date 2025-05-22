@@ -26,7 +26,7 @@ def get_public_ipv4() -> str:
 
 
 def generate_vless_uri(id: str, ip: str, port: int, short_id: str, public_key: str):
-    return f"vless://{id}@{ip}:{port}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk={public_key}&sid={short_id}#%D0%A8%D1%83%D1%82%20VPN"
+    return f"vless://{id}@{ip}:{port}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk={public_key}&sid={short_id}#Jester VPN"
 
 
 def generate_config(private_key: str, id: str, short_id: str):

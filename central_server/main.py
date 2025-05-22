@@ -70,11 +70,15 @@ def get_available_port(session, server):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(server.ip, username='root', password=server.password)
-    stdin, stdout, stderr = client.exec_command("python3 -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'")
+    stdin, stdout, stderr = client.exec_command(
+            "python3 -c 'import socket; s = socket.socket(); s.bind((\"\", 0)); print(s.getsockname()[1]); s.close()'"
+        )
+    stdout = int(stdout.read().decode().strip())
     if stderr.read().decode() != '':
         print(f"Error: {stderr.read().decode()}")
         return None
-    return int(stdout.read().strip())
+    client.close()
+    return stdout
 
 
 def get_error_message(stderr):
@@ -85,25 +89,35 @@ def get_error_message(stderr):
 
 
 def run_vpn_script(server, port, name, speed):
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(server.ip, username='root', password=server.password)
-    stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed}")
-    stdout = stdout.read().decode()
-    key = re.search(r'vless://(.*)', stdout).group(0)
-    get_error_message(stderr)
-    if key is None:
-        print("Error: No key found in output.")
-        return None
-    return key
+    try:
+        if not r.set(f"{server}_lock", 1, ex=3600, nx=True):
+            print(f"Server({server}) is busy, please try again later.")
+            return None
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(server.ip, username='root', password=server.password)
+        stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed}")
+        stdout = stdout.read().decode()
+        key = re.search(r'vless://(.*)', stdout).group(0)
+        get_error_message(stderr)
+        client.close()
+        if key is None:
+            print("Error: No key found in output.")
+            return None
+        return key
+    finally:
+        r.delete(f"{server}_lock")
 
 
-def create_vpn_config(session, name, speed, server):
+def create_vpn_config(session, name, speed, server, chat_id):
     port = get_available_port(session, server)
     if not port:
-        bot.send_message(server.ip, "Нет доступных портов.")
+        bot.send_message(chat_id, "Нет доступных портов.")
         return
     key = run_vpn_script(server, port, name, speed)
+    if not key:
+        bot.send_message(chat_id, "Пожалуйста попробуйте позже.")
+        return None
     config = database.Config(name=name, speed=speed, server=server, expire_date=datetime.datetime.now() + datetime.timedelta(days=30))
     session.add(config)
     session.commit()
@@ -118,17 +132,16 @@ def handle_query(call):
             name = name.decode()
             speed = int(call.data)
             session = sessionmaker(bind=engine)()
-            if check_config_availability(session, speed):
-                server = check_config_availability(session, speed)
-                if not server:
-                    bot.send_message(call.message.chat.id, "Нет доступных серверов.")
-                    return
-                key = create_vpn_config(session, name, speed, server)
-                if key:
-                    bot.send_message(call.message.chat.id, f"VPN создан. Ссылка:")
-                    bot.send_message(call.message.chat.id, key)
-                else:
-                    bot.send_message(call.message.chat.id, "Произошла ошибка при создании VPN.")
+            server = check_config_availability(session, speed)
+            if not server:
+                bot.send_message(call.message.chat.id, "Нет доступных серверов.")
+                return
+            key = create_vpn_config(session, name, speed, server, call.message.chat.id)
+            if key:
+                bot.send_message(call.message.chat.id, f"VPN создан. Ссылка:")
+                bot.send_message(call.message.chat.id, key)
+            else:
+                bot.send_message(call.message.chat.id, "Произошла ошибка при создании VPN.")
 
             r.delete(call.message.chat.id)
         else:

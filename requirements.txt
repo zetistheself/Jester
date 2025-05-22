@@ -6,3 +6,4 @@ redis
 requests
 SQLAlchemy
 TelegramBotAPI
+APScheduler

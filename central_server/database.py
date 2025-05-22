@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime
@@ -33,7 +35,7 @@ class Server(Base):
 
 
 def setup_database():
-    engine = create_engine('sqlite:///vpn_database.db')
+    engine = create_engine(f"sqlite:///{os.path.abspath('vpn_database.db')}")
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
     keys = server_list.keys()
