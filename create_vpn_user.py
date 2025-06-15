@@ -92,14 +92,15 @@ def main():
     id = str(uuid.uuid4())
     short_id = secrets.token_hex(4)
     save_config(generate_config(private_key, id, short_id))
-    if len(sys.argv) != 4:
-        print("Usage: python3 create_vpn_user.py <name> <port> <speed>")
+    if len(sys.argv) != 5:
+        print("Usage: python3 create_vpn_user.py <name> <port> <speed> <ip>")
         sys.exit(1)
     name = sys.argv[1]
     port = sys.argv[2]
     transfer_rate = sys.argv[3] + "mbit"
+    ip = sys.argv[4]
     run_container(name, port, transfer_rate)
-    print(generate_vless_uri(id, get_public_ipv4(), port, short_id, public_key))
+    print(generate_vless_uri(id, ip, port, short_id, public_key))
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ def check_config_availability(speed, payment_id):
                 )
                 session.add(server_ordering)
                 session.commit()
-                return server
+                return server.id
         return False
 
 

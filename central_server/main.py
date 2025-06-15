@@ -4,6 +4,7 @@ import server_manager
 import database
 import dotenv
 import os
+import redis
 
 from telebot import TeleBot, types
 from database import setup_database, get_user_tariffs, add_payment, check_config_was_generated, add_user_tariff
@@ -16,6 +17,8 @@ bot = TeleBot(TOKEN)
 engine = setup_database()
 
 month_tariff = datetime.datetime.now() + datetime.timedelta(days=30)
+
+r = redis.Redis()
 
 
 # 📲 Главное меню
@@ -66,8 +69,9 @@ def choose_tariff(message):
         bot.send_message(message.chat.id, "❌ Не удалось создать платёж. Попробуйте позже.", reply_markup=main_menu())
         return
 
-    # Проверка доступности сервера
-    if not server_manager.check_config_availability(speed, payment_info.id):
+    # Проверяем доступность конфигурации
+    server_id = server_manager.check_config_availability(speed, payment_info.id)
+    if not server_id:
         bot.send_message(
             message.chat.id,
             "🚫 К сожалению, нет доступных серверов для выбранного тарифа.\n"
@@ -77,7 +81,7 @@ def choose_tariff(message):
         return
 
     # Сохраняем платёж
-    add_payment(message.from_user.id, payment_info.id, str(value), speed)
+    add_payment(message.from_user.id, payment_info.id, str(value), speed, server_id)
 
     # Отправка пользователю информации о платеже
     bot.send_message(

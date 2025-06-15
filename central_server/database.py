@@ -75,6 +75,7 @@ class Payments(Base):
     speed = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     tariff_id = Column(Integer, ForeignKey('user_tariffs.id'))
+    server_id = Column(Integer, ForeignKey('servers.id'), nullable=False)
 
     tariff = relationship('UserTariff', back_populates='payment')
     user = relationship('User', back_populates='payments')
@@ -127,7 +128,7 @@ def get_user_tariffs(user_id: int):
         session.close()
 
 
-def add_payment(user_id, payment_id, amount, speed):
+def add_payment(user_id, payment_id, amount, speed, server_id):
     session = Session()
     try:
         user = session.query(User).get(user_id)
@@ -135,7 +136,7 @@ def add_payment(user_id, payment_id, amount, speed):
             user = User(id=user_id)
             session.add(user)
             session.commit()
-        payment = Payments(user_id=user_id, payment_id=payment_id, amount=amount, speed=speed)
+        payment = Payments(user_id=user_id, payment_id=payment_id, amount=amount, speed=speed, server_id=server_id)
         session.add(payment)
         session.commit()
     except Exception as e:
@@ -157,7 +158,11 @@ def add_user_tariff(user_id, speed, payment_id):
         uuid = generate_unique_key(session).lower()
 
         server_ordering = session.query(ServerOrdering).filter(ServerOrdering.payment_id == payment_id).first()
-        server = session.query(Server).get(server_ordering.server_id)
+        payment = session.query(Payments).filter(Payments.payment_id == payment_id).first()
+        if not server_ordering:
+            server = session.query(Server).get(payment.server_id)
+        else:
+            server = session.query(Server).get(server_ordering.server_id)
 
         key = server_manager.create_vpn_config(uuid, speed, server)
         if not key:
@@ -174,7 +179,6 @@ def add_user_tariff(user_id, speed, payment_id):
         )
         user.tariffs.append(tariff)
 
-        payment = session.query(Payments).filter(Payments.payment_id == payment_id).first()
         if payment:
             payment.config_was_generated = True
             tariff.payment = payment
