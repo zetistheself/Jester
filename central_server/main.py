@@ -1,153 +1,210 @@
-import os
-import telebot
-import redis
-import paramiko
-import subprocess
-import database
 import datetime
-import re
+import payment
+import server_manager
+import database
+import dotenv
+import os
 
-from dotenv import load_dotenv
-from sqlalchemy import func
-from sqlalchemy.orm import sessionmaker
+from telebot import TeleBot, types
+from database import setup_database, get_user_tariffs, add_payment, check_config_was_generated, add_user_tariff
+
+dotenv.load_dotenv()
+
+TOKEN = os.getenv("TOKEN")
+bot = TeleBot(TOKEN)
+
+engine = setup_database()
+
+month_tariff = datetime.datetime.now() + datetime.timedelta(days=30)
 
 
-load_dotenv()
+# 📲 Главное меню
+def main_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row('🛍 Купить VPN', '📦 Мой тариф')
+    markup.row('💬 Поддержка', '📚 FAQ')
+    return markup
 
-bot = telebot.TeleBot(os.getenv("TOKEN"))
 
-r = redis.Redis()
+# 🎫 Меню тарифов
+def tariff_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row('50 мбит/сек', '100 мбит/сек', '300 мбит/сек')
+    markup.row('🔙 Назад')
+    return markup
 
-engine = database.setup_database()
 
-
-def is_latin(text):
-    return all('a' <= char.lower() <= 'z' or char.isspace() for char in text)
+def payment_menu(payment_url, payment_id):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(text='Оплатить', url=payment_url))
+    markup.add(types.InlineKeyboardButton(text='Проверить платеж и получить VPN', callback_data=payment_id))
+    return markup
 
 
 @bot.message_handler(commands=['start'])
-def start_message(message):
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(telebot.types.KeyboardButton("Создать VPN"))
-    bot.send_message(message.chat.id, "Привет администратор! Я бот для управления Jester VPN.", reply_markup=markup) 
+def send_welcome(message):
+    bot.send_message(message.chat.id, "Добро пожаловать! Выберите действие:", reply_markup=main_menu())
 
 
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    status = r.get(message.chat.id)
-    if status:
-        status = status.decode()
-    if message.text == "Создать VPN":
-        bot.send_message(message.chat.id, "Введите имя покупателя(Латиница)")
-        r.set(message.chat.id, "Waiting_for_name", ex=86400)
-    elif status == 'Waiting_for_name':
-        name = message.text
-        if is_latin(name):
-            markup = telebot.types.InlineKeyboardMarkup()
-            markup.add(telebot.types.InlineKeyboardButton(text="50mbit", callback_data=50))
-            markup.add(telebot.types.InlineKeyboardButton(text="100mbit", callback_data=100))
-            markup.add(telebot.types.InlineKeyboardButton(text="300mbit", callback_data=300))
-            bot.send_message(message.chat.id, "Теперь выберите максимальную пропускную способность", reply_markup=markup)
-            r.set(message.chat.id, name, ex=86400)
-        else:
-            bot.send_message(message.chat.id, "Имя должно содержать только латинские символы.")
-    else:
-        bot.send_message(message.chat.id, "Я не знаю такой команды.")
+@bot.message_handler(func=lambda msg: msg.text == '🛍 Купить VPN')
+def buy_vpn(message):
+    with open('static/tariffs.jpg', 'rb') as photo:
+        bot.send_photo(message.chat.id, photo, caption="Выберите тариф:", reply_markup=tariff_menu())
 
 
-def check_config_availability(session, speed):
-    servers = session.query(database.Server).all()
-    if not servers:
-        return False
-    for server in servers:
-        speed_sum = session.query(func.sum(database.Config.speed)).filter(database.Config.server_id == server.id).scalar() or 0
-        if speed_sum + speed <= 600:
-            return server
-    return False
-
-
-def get_available_port(session, server):
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(server.ip, username='root', password=server.password)
-    stdin, stdout, stderr = client.exec_command(
-            "python3 -c 'import socket; s = socket.socket(); s.bind((\"\", 0)); print(s.getsockname()[1]); s.close()'"
-        )
-    stdout = int(stdout.read().decode().strip())
-    if stderr.read().decode() != '':
-        print(f"Error: {stderr.read().decode()}")
-        return None
-    client.close()
-    return stdout
-
-
-def get_error_message(stderr):
-    error = stderr.read().decode()
-    if error != '':
-        print(f"Error: {error}")
-    return error
-
-
-def run_vpn_script(server, port, name, speed):
+@bot.message_handler(func=lambda msg: msg.text in ['50 мбит/сек', '100 мбит/сек', '300 мбит/сек'])
+def choose_tariff(message):
     try:
-        if not r.set(f"{server}_lock", 1, ex=3600, nx=True):
-            print(f"Server({server}) is busy, please try again later.")
-            return None
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(server.ip, username='root', password=server.password)
-        stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed}")
-        stdout = stdout.read().decode()
-        key = re.search(r'vless://(.*)', stdout).group(0)
-        get_error_message(stderr)
-        client.close()
-        if key is None:
-            print("Error: No key found in output.")
-            return None
-        return key
-    finally:
-        r.delete(f"{server}_lock")
-
-
-def create_vpn_config(session, name, speed, server, chat_id):
-    port = get_available_port(session, server)
-    if not port:
-        bot.send_message(chat_id, "Нет доступных портов.")
+        speed = int(message.text[:-8])
+        value = payment.payment_tariff[message.text]
+    except (KeyError, ValueError):
+        bot.send_message(message.chat.id, "❌ Ошибка: выбран неверный тариф.", reply_markup=main_menu())
         return
-    key = run_vpn_script(server, port, name, speed)
-    if not key:
-        bot.send_message(chat_id, "Пожалуйста попробуйте позже.")
-        return None
-    config = database.Config(name=name, speed=speed, server=server, expire_date=datetime.datetime.now() + datetime.timedelta(days=30))
-    session.add(config)
-    session.commit()
-    return key
+
+    payment_info = payment.get_payment(value, f"Оплата тарифа {message.text}")
+    if not payment_info:
+        bot.send_message(message.chat.id, "❌ Не удалось создать платёж. Попробуйте позже.", reply_markup=main_menu())
+        return
+
+    # Проверка доступности сервера
+    if not server_manager.check_config_availability(speed, payment_info.id):
+        bot.send_message(
+            message.chat.id,
+            "🚫 К сожалению, нет доступных серверов для выбранного тарифа.\n"
+            "Попробуйте позже или выберите другой тариф.",
+            reply_markup=main_menu()
+        )
+        return
+
+    # Сохраняем платёж
+    add_payment(message.from_user.id, payment_info.id, str(value), speed)
+
+    # Отправка пользователю информации о платеже
+    bot.send_message(
+        message.chat.id,
+        f"💳 Идентификатор платежа: `{payment_info.id}`\n"
+        f"Вы выбрали тариф: *{message.text}*",
+        reply_markup=payment_menu(payment_info.confirmation.confirmation_url, payment_info.id),
+        parse_mode='Markdown'
+    )
 
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    if call.data in ["50", "100", "300"]:
-        name = r.get(call.message.chat.id)
-        if name:
-            name = name.decode()
-            speed = int(call.data)
-            session = sessionmaker(bind=engine)()
-            server = check_config_availability(session, speed)
-            if not server:
-                bot.send_message(call.message.chat.id, "Нет доступных серверов.")
+@bot.callback_query_handler()
+def check_payment(call):
+    payment_id = call.data
+
+    # Проверяем, уже ли был сгенерирован конфиг
+    if check_config_was_generated(payment_id):
+        bot.send_message(
+            call.message.chat.id,
+            "ℹ️ Платёж уже был подтверждён ранее.\n"
+            "Ваш тариф уже активирован.",
+            reply_markup=main_menu()
+        )
+        return
+
+    success, payment_info = payment.check_payment(payment_id)
+
+    with database.Session() as session:
+        payment_record = session.query(database.Payments).filter(
+            database.Payments.payment_id == payment_id
+        ).first()
+
+        if not payment_record:
+            bot.send_message(
+                call.message.chat.id,
+                "❌ Ошибка: платеж не найден в базе данных.",
+                reply_markup=main_menu()
+            )
+            return
+
+        speed = payment_record.speed
+
+        if success:
+            bot.send_message(
+                call.message.chat.id,
+                "✅ Платеж успешно подтвержден!\n"
+                "Создаём вашу конфигурацию, пожалуйста подождите немного...",
+                reply_markup=main_menu()
+            )
+            status, key = add_user_tariff(call.from_user.id, speed, payment_id)
+
+            if status != "OK":
+                if status == "Operation blocked":
+                    bot.send_message(
+                        call.message.chat.id,
+                        "🛠️ Сервер сейчас занят созданием конфигурации для другого пользователя. Подождите немного и попробуйте снова.\nСпасибо за понимание",
+                        reply_markup=main_menu()
+                    )
+                    return
+
+                bot.send_message(
+                    call.message.chat.id,
+                    f"⚠️ Произошла ошибка при создании конфигурации:\n`{status}`\n"
+                    "Пожалуйста, обратитесь в поддержку.",
+                    reply_markup=main_menu(),
+                    parse_mode='Markdown'
+                )
                 return
-            key = create_vpn_config(session, name, speed, server, call.message.chat.id)
-            if key:
-                bot.send_message(call.message.chat.id, f"VPN создан. Ссылка:")
-                bot.send_message(call.message.chat.id, key)
-            else:
-                bot.send_message(call.message.chat.id, "Произошла ошибка при создании VPN.")
 
-            r.delete(call.message.chat.id)
+            bot.send_message(
+                call.message.chat.id,
+                f"🎉 Конфигурация успешно создана!\n\n"
+                f"🔑 Ваш ключ:\n`{key}`\n\n"
+                "Инструкция: https://telegra.ph/Kak-podklyuchit-vpn-na-IPHONEANDROID-06-03",
+                reply_markup=main_menu(),
+                parse_mode='Markdown'
+            )
+
         else:
-            bot.send_message(call.message.chat.id, "Произошла ошибка. Попробуйте снова.")
-    else:
-        bot.send_message(call.message.chat.id, "Я не знаю такой команды.")
+            bot.send_message(
+                call.message.chat.id,
+                "❗ Платеж не подтвержден или не найден.\n"
+                "Попробуйте позже или свяжитесь с поддержкой.",
+                reply_markup=main_menu()
+            )
 
 
-bot.polling(none_stop=True)
+@bot.message_handler(func=lambda msg: msg.text == '📦 Мой тариф')
+def my_tariff(message):
+    tariffs = get_user_tariffs(message.from_user.id)
+
+    if not tariffs:
+        bot.send_message(message.chat.id, "У вас пока нет активных тарифов.", reply_markup=main_menu())
+        return
+
+    text = "🧾 Ваши активные тарифы:\n\n"
+    now = datetime.datetime.utcnow()
+
+    for tariff in tariffs:
+        days_left = (tariff.expires_at - now).days
+        text += (
+            f"💨 Тариф: {tariff.speed} мбит/сек\n"
+            f"🔑 Ключ: `{tariff.vpn_key}`\n"
+            f"📅 Осталось: {days_left} дней\n"
+            f"— — — — —\n"
+        )
+
+    bot.send_message(message.chat.id, text, reply_markup=main_menu(), parse_mode='Markdown')
+
+
+@bot.message_handler(func=lambda msg: msg.text == '💬 Поддержка')
+def support(message):
+    bot.send_message(message.chat.id, "По всем вопросам обращайтесь: @jestervpn_support", reply_markup=main_menu())
+
+
+@bot.message_handler(func=lambda msg: msg.text == '📚 FAQ')
+def faq(message):
+    bot.send_message(
+        message.chat.id,
+        "https://telegra.ph/Kak-podklyuchit-vpn-na-IPHONEANDROID-06-03",
+        reply_markup=main_menu()
+    )
+
+
+@bot.message_handler(func=lambda msg: msg.text == '🔙 Назад')
+def go_back(message):
+    bot.send_message(message.chat.id, "Возвращаюсь в главное меню", reply_markup=main_menu())
+
+
+bot.infinity_polling()
