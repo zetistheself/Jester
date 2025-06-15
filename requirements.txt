@@ -7,4 +7,5 @@ requests
 SQLAlchemy
 TelegramBotAPI
 APScheduler
-yookassa 
+yookassa
+psycopg2-binary

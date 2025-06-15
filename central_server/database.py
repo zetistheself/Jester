@@ -7,12 +7,18 @@ from server_list import server_list
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, delete
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime, timedelta
+import dotenv
+import psycopg2
+
+
+dotenv.load_dotenv()
 
 Base = declarative_base()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def setup_database():
-    engine = create_engine(f"sqlite:///{os.path.abspath('vpn_database.db')}")
+    engine = create_engine(DATABASE_URL)
     Base.metadata.create_all(engine)
 
     Session = sessionmaker(bind=engine)  # создаём sessionmaker один раз
