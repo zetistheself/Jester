@@ -130,6 +130,11 @@ def get_user_tariffs(user_id: int):
 def add_payment(user_id, payment_id, amount, speed):
     session = Session()
     try:
+        user = session.query(User).get(user_id)
+        if not user:
+            user = User(id=user_id)
+            session.add(user)
+            session.commit()
         payment = Payments(user_id=user_id, payment_id=payment_id, amount=amount, speed=speed)
         session.add(payment)
         session.commit()
