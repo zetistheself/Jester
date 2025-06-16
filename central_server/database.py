@@ -243,3 +243,19 @@ def delete_old_orderings(session):
         delete(ServerOrdering).where(ServerOrdering.created_at < ten_minutes_ago)
     )
     session.commit()
+
+
+def chech_user_existance(user_id: int):
+    session = Session()
+    try:
+        user = session.query(User).get(user_id)
+        if not user:
+            user = User(id=user_id)
+            session.add(user)
+            session.commit()
+        return True
+    except Exception as e:
+        print(f"Error checking user existence: {e}")
+        return False
+    finally:
+        session.close()

@@ -126,7 +126,7 @@ def handle_email(message):
     if not payment_info:
         bot.send_message(message.chat.id, "❌ Не удалось создать платёж. Попробуйте позже.", reply_markup=main_menu())
         return
-
+    database.chech_user_existance(message.from_user.id)
     server_id = server_manager.check_config_availability(speed, payment_info.id, message.from_user.id)
     if not server_id:
         bot.send_message(
