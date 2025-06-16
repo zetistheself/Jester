@@ -5,6 +5,7 @@ import paramiko
 import telebot
 import dotenv
 import os
+import psycopg2
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 

@@ -2,9 +2,11 @@ import random
 import string
 import os
 import server_manager
+import redis
+import payment as p
 
 from server_list import server_list
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, delete
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, delete, BigInteger
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime, timedelta
 import dotenv
@@ -12,6 +14,8 @@ import psycopg2
 
 
 dotenv.load_dotenv()
+
+r = redis.Redis()
 
 Base = declarative_base()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -43,7 +47,7 @@ def generate_unique_key(session, length: int = 6) -> str:
 class User(Base):
     __tablename__ = 'users'
 
-    id = Column(Integer, primary_key=True)
+    id = Column(BigInteger, primary_key=True)
     tariffs = relationship('UserTariff', back_populates='user', cascade="all, delete-orphan")
     payments = relationship('Payments', back_populates='user', cascade="all, delete-orphan")
 
@@ -101,6 +105,7 @@ class ServerOrdering(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     payment_id = Column(String, nullable=False)
     speed = Column(Integer, nullable=False)
+    user_id = Column(BigInteger, ForeignKey('users.id'), nullable=False)
 
 
 engine = setup_database()
@@ -112,6 +117,44 @@ def check_config_was_generated(payment_id):
     try:
         return session.query(Payments).filter(Payments.payment_id == payment_id).first().config_was_generated
     except Exception:
+        return False
+    finally:
+        session.close()
+
+
+def user_exists(user_id):
+    session = Session()
+    user = session.query(User).get(user_id)
+    if not user:
+        user = User(id=user_id)
+        session.add(user)
+        session.commit()
+
+
+def check_server_ordering_exists(user_id):
+    session = Session()
+    try:
+        return session.query(ServerOrdering).filter(ServerOrdering.user_id == user_id).first() is not None
+    except Exception as e:
+        print(f"Error checking server ordering: {e}")
+        return False
+    finally:
+        session.close()
+
+
+def delete_server_ordering(user_id):
+    session = Session()
+    try:
+        server_ordering = session.query(ServerOrdering).filter(ServerOrdering.user_id == user_id).first()
+        if server_ordering:
+            r.delete(f"{user_id}_server_ordering")
+            session.delete(server_ordering)
+            session.commit()
+            return True
+        return False
+    except Exception as e:
+        session.rollback()
+        print(f"Error deleting server ordering: {e}")
         return False
     finally:
         session.close()
@@ -183,7 +226,10 @@ def add_user_tariff(user_id, speed, payment_id):
             payment.config_was_generated = True
             tariff.payment = payment
 
-        session.delete(server_ordering)
+        try:
+            session.delete(server_ordering)
+        except Exception:
+            pass
         session.commit()
         return "OK", key
     finally:
