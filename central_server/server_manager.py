@@ -63,7 +63,7 @@ def run_vpn_script(server, port, name, speed):
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(server.ip, username='root', password=server.password)
-        stdin, stdout, stderr = client.exec_command(f"cd Jester && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed} {server.ip}")
+        stdin, stdout, stderr = client.exec_command(f"cd Jester && git pull && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && python3 create_vpn_user.py {name} {port} {speed} {server.ip}")
         stdout = stdout.read().decode()
         key = re.search(r'vless://(.*)', stdout).group(0)
         get_error_message(stderr)

@@ -71,7 +71,6 @@ def deleting_server_ordering(message):
     r.delete(f"{message.chat.id}_tariff")
     r.delete(f"{message.chat.id}_awaiting_email")
     delete_server_ordering(message.from_user.id)
-    r.delete(f"{message.chat.id}_server_ordering")
     bot.send_message(
         message.chat.id,
         "✅ Ваш предыдущий заказ на сервер успешно отменен.",
@@ -105,10 +104,6 @@ def handle_email(message):
         r.delete(f"{message.chat.id}_awaiting_email")
         r.delete(f"{message.chat.id}_tariff")
         bot.send_message(message.chat.id, "Отмена ввода email.", reply_markup=main_menu())
-        return
-
-    if not r.set(f"{message.chat.id}_server_ordering", 1, ex=3600, nx=True):
-        bot.send_message(message.chat.id, "Подождите немного", reply_markup=main_menu())
         return
 
     if not EMAIL_REGEX.match(message.text):
@@ -231,6 +226,14 @@ def check_payment(call):
                     )
         else:
             bot.answer_callback_query(call.id, "Пожалуйста, подождите, идет проверка платежа...")
+    except Exception as e:
+        bot.send_message(
+            call.message.chat.id,
+            f"⚠️ Произошла ошибка: {str(e)}\n"
+            "Пожалуйста, обратитесь в поддержку.",
+            reply_markup=main_menu()
+        )
+        print(f"Error in check_payment: {e}")
     finally:
         r.delete(f"{call.message.chat.id}_lock")
 
