@@ -72,7 +72,7 @@ class Payments(Base):
     __tablename__ = 'payments'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
+    user_id = Column(BigInteger, ForeignKey('users.id'))
     payment_id = Column(String, unique=True, nullable=False)
     config_was_generated = Column(Boolean, default=False)
     amount = Column(String, nullable=False)
